@@ -1,15 +1,26 @@
 import 'dart:convert';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:lyrics_app/pages/colors.dart';
+import 'package:lyrics_app/pages/display_lyrics.dart';
 import 'package:lyrics_app/pages/model.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:html/parser.dart' as parser;
+
 
 import 'homepage.dart';
 
 class AllSongs extends StatefulWidget {
+  late Dio _dio;
   String? song;
-  AllSongs(this.song);
+  AllSongs(this.song){
+    BaseOptions options = new BaseOptions(
+      connectTimeout: Duration(milliseconds: 20*10000),
+      receiveTimeout: Duration(milliseconds: 20*10000),
+    );
+    _dio = new Dio(options);
+  }
   @override
   _AllSongsState createState() => _AllSongsState();
 }
@@ -58,74 +69,99 @@ class _AllSongsState extends State<AllSongs> {
       body: ListView.builder(
         itemCount: model.length,
         itemBuilder: (context, index) {
-          return buildSongTile(model[index],context);
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: GestureDetector(
+              onTap: ()  async {
+                String lyr = await getSongLyricsFromLink(model[index].url);
+                print(lyr);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => DisplayLyrics(lyr,artist_names: model[index].artist_names,full_title: model[index].full_title,header_image_thumbnail_url: model[index].header_image_thumbnail_url,),
+                ));
+              },
+              child: Card(
+                elevation: 5,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                shadowColor: Colors.black26,
+                child: Container(
+                  padding: EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(15),
+                    gradient: LinearGradient(
+                      colors: [Colors.grey.shade100, Colors.white], // Subtle gradient
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Image.network(
+                          model[index].header_image_thumbnail_url,
+                          width: 60,
+                          height: 60,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) => Icon(Icons.image, size: 60, color: Colors.grey),
+                        ),
+                      ),
+                      SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              model[index].full_title,
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            SizedBox(height: 5),
+                            Text(
+                              model[index].artist_names,
+                              style: TextStyle(fontSize: 14, color: Colors.grey[700]),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Icon(Icons.chevron_right, color: Colors.grey[700]), // Arrow indicator
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+          // return buildSongTile(model[index],context);
         },
       ),
     );
   }
 
-  Widget buildSongTile(Model song, BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: GestureDetector(
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => SearchPage()),
-          );
-        },
-        child: Card(
-          elevation: 5,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-          shadowColor: Colors.black26,
-          child: Container(
-            padding: EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(15),
-              gradient: LinearGradient(
-                colors: [Colors.grey.shade100, Colors.white], // Subtle gradient
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-            ),
-            child: Row(
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Image.network(
-                    song.header_image_thumbnail_url,
-                    width: 60,
-                    height: 60,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) => Icon(Icons.image, size: 60, color: Colors.grey),
-                  ),
-                ),
-                SizedBox(width: 12), // Spacing between image & text
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        song.full_title,
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      SizedBox(height: 5),
-                      Text(
-                        song.artist_names,
-                        style: TextStyle(fontSize: 14, color: Colors.grey[700]),
-                      ),
-                    ],
-                  ),
-                ),
-                Icon(Icons.chevron_right, color: Colors.grey[700]), // Arrow indicator
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
+  Future<String> getSongLyricsFromLink(String link) async {
+    String songUrl = link;
+    print(songUrl);
+    var response = await widget._dio.get(songUrl);
+    String htmlText = response.data;
+    var parsedDoc = parser.parse(htmlText);
+
+    var elements = parsedDoc
+        .getElementsByTagName("div")
+        .where((element) =>
+        element.attributes.containsKey("data-lyrics-container"))
+        .toList();
+
+    if (elements.isNotEmpty) {
+      String lyricsText = "";
+      elements.forEach((element) {
+        var x = element;
+        x.innerHtml = x.innerHtml.replaceAll("<br>", "\n");
+        lyricsText += x.text;
+      });
+      return lyricsText;
+    } else {
+      throw Exception("No Lyrics Found");
+    }
   }
 }
 
